@@ -39,7 +39,6 @@ dependencies:
   location_permissions: ^4.0.0
   device_info: ^2.0.3
   get: ^4.6.5
-  permission_handler: ^10.2.0
 
 dev_dependencies:
   flutter_test:

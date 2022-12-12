@@ -39,8 +39,11 @@ class _HomePageState extends State<HomePage> {
   late QualifiedCharacteristic _rxCharacteristic;
 // These are the UUIDs of your device
   final Uuid serviceUuid = Uuid.parse("cb55b93d-7813-4221-ac3b-df7e3f6cadc6");
+  final Uuid serviceUuid1 = Uuid.parse("4fafc201-1fb5-459e-8fcc-c5c9c331914b");
   final Uuid characteristicUuid =
       Uuid.parse("f51fd052-8334-46e7-b09c-973a3f0568ff");
+  final Uuid characteristicUuid1 =
+      Uuid.parse("beb5483e-36e1-4688-b7f5-ea07361b26a8");
   final Uuid writableUuid = Uuid.parse("beb5483e-36e1-4688-b7f5-ea07361b26a8");
 
   final deviceslist = <DiscoveredDevice>[];
@@ -58,6 +61,15 @@ class _HomePageState extends State<HomePage> {
     } else if (Platform.isIOS) {
       permGranted = true;
     }
+
+    // bool permGranted = true;
+    // var status = await Permission.location.status;
+    // if (status.isDenied) {
+    //   permGranted = false;
+    //   if (await Permission.location.request().isGranted) {
+    //     permGranted = true;
+    //   }
+    // }
 
 // Main scanning logic happens here ⤵️
     if (permGranted) {
@@ -95,7 +107,12 @@ class _HomePageState extends State<HomePage> {
         .connectToAdvertisingDevice(
             id: id,
             prescanDuration: const Duration(seconds: 1),
-            withServices: [serviceUuid, characteristicUuid]);
+            servicesWithCharacteristicsToDiscover: {
+          serviceUuid1: [characteristicUuid1]
+        },
+            withServices: [
+          serviceUuid1
+        ]);
     _currentConnectionStream.listen((event) {
       switch (event.connectionState) {
         // We're connected and good to go!
@@ -106,8 +123,8 @@ class _HomePageState extends State<HomePage> {
         case DeviceConnectionState.connected:
           {
             _rxCharacteristic = QualifiedCharacteristic(
-                serviceId: serviceUuid,
-                characteristicId: characteristicUuid,
+                serviceId: serviceUuid1,
+                characteristicId: characteristicUuid1,
                 deviceId: event.deviceId);
             setState(() {
               _foundDeviceWaitingToConnect = false;
@@ -147,6 +164,13 @@ class _HomePageState extends State<HomePage> {
   }
 
   @override
+  void dispose() {
+    // TODO: implement dispose
+    StreamSubscriptionSerialDisposable();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
@@ -162,6 +186,18 @@ class _HomePageState extends State<HomePage> {
         children: [
           Column(
             children: [
+              // MaterialButton(
+              //     onPressed: () async {
+              //       bool permGranted = true;
+              //       var status = await Permission.location.status;
+              //       if (status.isDenied) {
+              //         permGranted = false;
+              //         if (await Permission.location.request().isGranted) {
+              //           permGranted = true;
+              //         }
+              //       }
+              //     },
+              //     child: const Text('data')),
               Expanded(
                 flex: 2,
                 child: ListView.builder(
@@ -210,7 +246,7 @@ class _HomePageState extends State<HomePage> {
                           //   },
                           // );
                           _connectToDevice(deviceslist[index].id);
-                          log(deviceslist[index].id.toString());
+                          log(deviceslist[index].toString());
                         },
                       ),
                     );
@@ -219,16 +255,24 @@ class _HomePageState extends State<HomePage> {
               ),
               Expanded(
                   flex: 1,
-                  child: SingleChildScrollView(
-                    child: Column(
-                      children: [
-                        const Text("LOGS"),
-                        ...List.generate(
-                            logsList.length,
-                            (index) => ListTile(
-                                  title: Text('Value: ${logsList[index]}'),
-                                ))
-                      ],
+                  child: Container(
+                    width: double.infinity,
+                    decoration: BoxDecoration(
+                        border: Border.all(color: Colors.grey, width: 2)),
+                    child: SingleChildScrollView(
+                      child: Column(
+                        children: [
+                          const SizedBox(
+                            height: 20,
+                          ),
+                          const Text("LOGS"),
+                          ...List.generate(
+                              logsList.length,
+                              (index) => ListTile(
+                                    title: Text('Log: ${logsList[index]}'),
+                                  ))
+                        ],
+                      ),
                     ),
                   )),
             ],
@@ -322,11 +366,12 @@ class _HomePageState extends State<HomePage> {
             onPressed: () async {
               // print('object');
               final characteristic = QualifiedCharacteristic(
-                  serviceId: serviceUuid,
-                  characteristicId: writableUuid,
-                  deviceId: "24:0A:C4:58:F5:5E");
+                  serviceId: serviceUuid1,
+                  characteristicId: characteristicUuid1,
+                  deviceId: "94:B9:7E:FB:03:6E");
               final response =
                   await flutterReactiveBle.readCharacteristic(characteristic);
+              log(String.fromCharCodes(response));
               log(response.toString());
             },
             child: const Icon(Icons.read_more),
@@ -335,20 +380,40 @@ class _HomePageState extends State<HomePage> {
             width: 10,
           ),
           FloatingActionButton(
-            onPressed: () async {
+            onPressed: () {
+              print('Write charactereistic');
               try {
                 final characteristic = QualifiedCharacteristic(
-                    serviceId: serviceUuid,
-                    characteristicId: writableUuid,
-                    deviceId: "24:0A:C4:58:F5:5E");
-                await flutterReactiveBle.writeCharacteristicWithResponse(
+                    serviceId: serviceUuid1,
+                    characteristicId:
+                        Uuid.parse('beb5483e-36e1-4688-b7f5-ea07361b26a8'),
+                    deviceId: "94:B9:7E:FB:03:6E");
+                List<int> val = [
+                  74,
+                  121,
+                  111,
+                  100,
+                  101,
+                  115,
+                  104,
+                  32,
+                  115,
+                  104,
+                  97,
+                  107,
+                  121,
+                  97
+                ];
+                final res = flutterReactiveBle.writeCharacteristicWithResponse(
                     characteristic,
-                    value: [1, 0]);
+                    value: 'aa'.codeUnits);
+                print(String.fromCharCodes(val));
               } on Exception catch (e) {
                 // TODO
                 log(e.toString());
               }
             },
+            tooltip: 'Write characteristic',
             child: const Icon(Icons.data_exploration_outlined),
           ),
           const SizedBox(
@@ -356,12 +421,12 @@ class _HomePageState extends State<HomePage> {
           ),
           FloatingActionButton(
             onPressed: () async {
+              log('SUBSCRIBE');
               final characteristic = QualifiedCharacteristic(
-                  serviceId: serviceUuid,
-                  characteristicId:
-                      Uuid.parse('7043ea1a-fa87-4074-8981-e0534e996751'),
+                  serviceId: serviceUuid1,
+                  characteristicId: characteristicUuid1,
                   // writableUuid,
-                  deviceId: "24:0A:C4:58:F5:5E");
+                  deviceId: "94:B9:7E:FB:03:6E");
               flutterReactiveBle
                   .subscribeToCharacteristic(characteristic)
                   .listen((data) {
@@ -370,7 +435,7 @@ class _HomePageState extends State<HomePage> {
                 // logsList.clear();
 
                 setState(() {
-                  logsList.add(data.toString());
+                  logsList.add(data[0].toString());
                 });
                 // flutterReactiveBle.writeCharacteristicWithResponse(
                 //     characteristic,
