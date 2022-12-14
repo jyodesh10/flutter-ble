@@ -3,12 +3,11 @@ import 'dart:developer';
 import 'dart:io' show Platform;
 
 import 'package:device_info/device_info.dart';
-import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 import 'package:lightbox_tutorial/widgets/snackbar.dart';
-import 'package:location_permissions/location_permissions.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_reactive_ble/flutter_reactive_ble.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 void main() {
   return runApp(
@@ -33,9 +32,10 @@ class _HomePageState extends State<HomePage> {
   final flutterReactiveBle = FlutterReactiveBle();
   late StreamSubscription<DiscoveredDevice> _scanStream;
   late StreamSubscription<dynamic> _currentConnectionStream;
-
+  final txtcontroller = TextEditingController();
+  final namecontroller = TextEditingController();
   var logsList = [];
-
+  var connectedDeviceId = '';
   late QualifiedCharacteristic _rxCharacteristic;
 // These are the UUIDs of your device
   final Uuid serviceUuid = Uuid.parse("cb55b93d-7813-4221-ac3b-df7e3f6cadc6");
@@ -43,40 +43,29 @@ class _HomePageState extends State<HomePage> {
   final Uuid characteristicUuid =
       Uuid.parse("f51fd052-8334-46e7-b09c-973a3f0568ff");
   final Uuid characteristicUuid1 =
-      Uuid.parse("beb5483e-36e1-4688-b7f5-ea07361b26a8");
+      Uuid.parse("6E400003-B5A3-F393-E0A9-E50E24DCCA9E");
   final Uuid writableUuid = Uuid.parse("beb5483e-36e1-4688-b7f5-ea07361b26a8");
 
   final deviceslist = <DiscoveredDevice>[];
 
   void _startScan() async {
-// Platform permissions handling stuff
     bool permGranted = false;
     setState(() {
       _scanStarted = true;
     });
-    PermissionStatus permission;
+    // PermissionStatus permission;
     if (Platform.isAndroid) {
-      permission = await LocationPermissions().requestPermissions();
-      if (permission == PermissionStatus.granted) permGranted = true;
+      var permission = await Permission.location.request();
+      if (permission.isGranted) permGranted = true;
     } else if (Platform.isIOS) {
       permGranted = true;
     }
 
-    // bool permGranted = true;
-    // var status = await Permission.location.status;
-    // if (status.isDenied) {
-    //   permGranted = false;
-    //   if (await Permission.location.request().isGranted) {
-    //     permGranted = true;
-    //   }
-    // }
-
-// Main scanning logic happens here ⤵️
     if (permGranted) {
       log('scamnn');
 
       _scanStream = flutterReactiveBle.scanForDevices(
-          withServices: [], scanMode: ScanMode.lowLatency).listen((device) {
+          withServices: [], scanMode: ScanMode.balanced).listen((device) {
         // Change this string to what you defined in Zephyr
 
         // print(device.name.toString());
@@ -88,13 +77,17 @@ class _HomePageState extends State<HomePage> {
           } else {
             deviceslist.add(device);
           }
+          // log(device.toString());
+          // if (device.name == namecontroller.text) {
+          //   log('device Found');
+          //   // Future.delayed(const Duration(seconds: 5), () {
+          //   //   _scanStream.cancel();
+          //   // });
 
-          // _scanStream.cancel();
+          //   _ubiqueDevice = device;
+          //   _foundDeviceWaitingToConnect = true;
+          // }
         });
-        if (device.name == '22050005R') {
-          _ubiqueDevice = device;
-          _foundDeviceWaitingToConnect = true;
-        }
       });
     }
   }
@@ -105,14 +98,11 @@ class _HomePageState extends State<HomePage> {
     // Let's listen to our connection so we can make updates on a state change
     Stream<ConnectionStateUpdate> _currentConnectionStream = flutterReactiveBle
         .connectToAdvertisingDevice(
-            id: id,
-            prescanDuration: const Duration(seconds: 1),
-            servicesWithCharacteristicsToDiscover: {
-          serviceUuid1: [characteristicUuid1]
-        },
-            withServices: [
-          serviceUuid1
-        ]);
+            id: id, prescanDuration: const Duration(seconds: 1),
+            //     servicesWithCharacteristicsToDiscover: {
+            //   serviceUuid1: [characteristicUuid1]
+            // },
+            withServices: [serviceUuid1, writableUuid]);
     _currentConnectionStream.listen((event) {
       switch (event.connectionState) {
         // We're connected and good to go!
@@ -129,6 +119,7 @@ class _HomePageState extends State<HomePage> {
             setState(() {
               _foundDeviceWaitingToConnect = false;
               _connected = true;
+              connectedDeviceId = event.deviceId;
             });
             log('connected');
             getSnackbar(message: 'Connected!!');
@@ -140,7 +131,21 @@ class _HomePageState extends State<HomePage> {
           {
             log('disconnected');
             getSnackbar(bgColor: Colors.red, message: 'disconnected!!');
+            setState(() {
+              _connected = false;
+            });
+            _startScan();
+            break;
+          }
 
+        case DeviceConnectionState.disconnecting:
+          {
+            log('disconnected');
+            getSnackbar(
+                bgColor: Colors.red, message: '---------disconnecting--------');
+            setState(() {
+              _connected = false;
+            });
             break;
           }
         default:
@@ -164,9 +169,17 @@ class _HomePageState extends State<HomePage> {
   }
 
   @override
+  void initState() {
+    bleStatusCheck();
+    _startScan();
+    super.initState();
+  }
+
+  @override
   void dispose() {
     // TODO: implement dispose
     StreamSubscriptionSerialDisposable();
+    flutterReactiveBle.clearGattCache("94:B9:7E:FB:03:6E");
     super.dispose();
   }
 
@@ -177,8 +190,33 @@ class _HomePageState extends State<HomePage> {
       appBar: AppBar(
         title: const Text('Bluetooth Devices'),
         leading: const Icon(Icons.bluetooth),
-        actions: const [
-          Text('Connected', style: TextStyle(color: Colors.green)),
+        actions: [
+          IconButton(
+              onPressed: () {
+                showDialog(
+                  context: context,
+                  builder: (context) {
+                    return AlertDialog(
+                      content: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          TextField(
+                            controller: namecontroller,
+                          ),
+                          const SizedBox(
+                            height: 10,
+                          ),
+                          MaterialButton(
+                            onPressed: () {},
+                            child: const Text('Add Name'),
+                          )
+                        ],
+                      ),
+                    );
+                  },
+                );
+              },
+              icon: const Icon(Icons.menu))
         ],
       ),
       body: SafeArea(
@@ -215,39 +253,22 @@ class _HomePageState extends State<HomePage> {
                             Text("Name :" + deviceslist[index].name.toString()),
                         subtitle:
                             Text("Id :" + deviceslist[index].id.toString()),
-                        onTap: () {
-                          // _currentConnectionStream = flutterReactiveBle
-                          //     .connectToDevice(
-                          //   id: deviceslist[index].id,
-                          //   connectionTimeout: const Duration(seconds: 15),
-                          // )
-                          //     .listen(
-                          //   (connectionState) async {
-                          //     switch (connectionState.connectionState) {
-                          //       case DeviceConnectionState.connecting:
-                          //         log("-- Connecting to device --");
-                          //         break;
-
-                          //       case DeviceConnectionState.connected:
-                          //         log(" -- Connected --");
-                          //         break;
-
-                          //       case DeviceConnectionState.disconnecting:
-                          //         log("-- disconnecting --");
-                          //         break;
-
-                          //       case DeviceConnectionState.disconnected:
-                          //         log("-- disconnected --");
-                          //         break;
-                          //     }
-                          //   },
-                          //   onError: (error) {
-                          //     print("error on connect $error \n");
-                          //   },
-                          // );
-                          _connectToDevice(deviceslist[index].id);
-                          log(deviceslist[index].toString());
-                        },
+                        trailing: MaterialButton(
+                          onPressed: () {
+                            _connectToDevice(deviceslist[index].id);
+                            log(deviceslist[index].toString());
+                          },
+                          color: connectedDeviceId == deviceslist[index].id
+                              ? Colors.green
+                              : Colors.black,
+                          child: Text(
+                            connectedDeviceId == deviceslist[index].id
+                                ? 'Connected'
+                                : 'Connect',
+                            style: TextStyle(color: Colors.white),
+                          ),
+                        ),
+                        onTap: () {},
                       ),
                     );
                   },
@@ -288,166 +309,192 @@ class _HomePageState extends State<HomePage> {
               : Container(),
         ],
       )),
-      floatingActionButton: Row(
-        mainAxisAlignment: MainAxisAlignment.end,
-        children: [
-          FloatingActionButton(
-            onPressed: () {
-              deviceslist.clear();
-              _startScan();
-              // getAndroidSdk();
-            },
-            child: const Icon(Icons.search),
-          ),
-          const SizedBox(
-            width: 10,
-          ),
-          FloatingActionButton(
-            onPressed: () {
-              // flutterReactiveBle
-              //     .connectToDevice(
-              //   id: deviceslist[0].id.toString(),
-              //   servicesWithCharacteristicsToDiscover: {
-              //     serviceUuid: [characteristicUuid]
-              //   },
-              //   connectionTimeout: const Duration(seconds: 2),
-              // )
-              //     .listen((connectionState) {
-              //   // Handle connection state updates
-              //   log(connectionState.deviceId.toString());
-              // }, onError: (Object error) {
-              //   // Handle a possible error
-              // });
-              print('connect to devices');
-              // flutterReactiveBle
-              //     .connectToAdvertisingDevice(
-              //         id: deviceslist[0].id,
-              //         withServices: [serviceUuid],
-              //         prescanDuration: const Duration(seconds: 5),
-              //         connectionTimeout: const Duration(seconds: 2),
-              //         servicesWithCharacteristicsToDiscover: {})
-              //     .listen((connectionState) {
-              //   // Handle connection state updates
-              //   switch (connectionState.connectionState) {
-              //     case DeviceConnectionState.connecting:
-              //       setState(() {
-              //         log('Connecting');
-              //       });
-              //       break;
-              //     case DeviceConnectionState.disconnected:
-              //       {
-              //         setState(() {
-              //           log('disConnected');
-              //         });
-              //         break;
-              //       }
-              //     case DeviceConnectionState.connected:
-              //       {
-              //         setState(() {
-              //           log('Connected');
-              //         });
-              //         break;
-              //       }
-              //     default:
-              //       setState(() {
-              //         log('error');
-              //       });
-              //   }
-              // }, onError: (dynamic error) {
-              //   // Handle a possible error
-              // });
-            },
-            child: const Icon(Icons.bluetooth),
-          ),
-          const SizedBox(
-            width: 10,
-          ),
-          FloatingActionButton(
-            onPressed: () async {
-              // print('object');
-              final characteristic = QualifiedCharacteristic(
-                  serviceId: serviceUuid1,
-                  characteristicId: characteristicUuid1,
-                  deviceId: "94:B9:7E:FB:03:6E");
-              final response =
-                  await flutterReactiveBle.readCharacteristic(characteristic);
-              log(String.fromCharCodes(response));
-              log(response.toString());
-            },
-            child: const Icon(Icons.read_more),
-          ),
-          const SizedBox(
-            width: 10,
-          ),
-          FloatingActionButton(
-            onPressed: () {
-              print('Write charactereistic');
-              try {
+      floatingActionButton: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: [
+            FloatingActionButton(
+              onPressed: () {
+                deviceslist.clear();
+                _startScan();
+                // getAndroidSdk();
+              },
+              child: const Icon(Icons.search),
+            ),
+            const SizedBox(
+              width: 10,
+            ),
+            FloatingActionButton(
+              onPressed: () {
+                print('connect to devices');
+              },
+              child: const Icon(Icons.bluetooth),
+            ),
+            const SizedBox(
+              width: 10,
+            ),
+
+            ////////////////REad
+            FloatingActionButton(
+              onPressed: () async {
+                // print('object');
                 final characteristic = QualifiedCharacteristic(
                     serviceId: serviceUuid1,
-                    characteristicId:
-                        Uuid.parse('beb5483e-36e1-4688-b7f5-ea07361b26a8'),
+                    characteristicId: writableUuid,
+                    // Uuid.parse('6E400003-B5A3-F393-E0A9-E50E24DCCA9E'),
                     deviceId: "94:B9:7E:FB:03:6E");
-                List<int> val = [
-                  74,
-                  121,
-                  111,
-                  100,
-                  101,
-                  115,
-                  104,
-                  32,
-                  115,
-                  104,
-                  97,
-                  107,
-                  121,
-                  97
-                ];
-                final res = flutterReactiveBle.writeCharacteristicWithResponse(
-                    characteristic,
-                    value: 'aa'.codeUnits);
-                print(String.fromCharCodes(val));
-              } on Exception catch (e) {
-                // TODO
-                log(e.toString());
-              }
-            },
-            tooltip: 'Write characteristic',
-            child: const Icon(Icons.data_exploration_outlined),
-          ),
-          const SizedBox(
-            width: 10,
-          ),
-          FloatingActionButton(
-            onPressed: () async {
-              log('SUBSCRIBE');
-              final characteristic = QualifiedCharacteristic(
-                  serviceId: serviceUuid1,
-                  characteristicId: characteristicUuid1,
-                  // writableUuid,
-                  deviceId: "94:B9:7E:FB:03:6E");
-              flutterReactiveBle
-                  .subscribeToCharacteristic(characteristic)
-                  .listen((data) {
-                // code to handle incoming data
-                log(data.toString());
-                // logsList.clear();
+                final response =
+                    await flutterReactiveBle.readCharacteristic(characteristic);
 
-                setState(() {
-                  logsList.add(data[0].toString());
+                showDialog(
+                  context: context,
+                  builder: (context) => AlertDialog(
+                      title: const Text('Read'),
+                      content: Text(String.fromCharCodes(response))),
+                );
+                log(String.fromCharCodes(response));
+                log(response.toString());
+              },
+              child: const Icon(Icons.read_more),
+            ),
+            const SizedBox(
+              width: 10,
+            ),
+            ////////////////Write
+            FloatingActionButton(
+              onPressed: () {
+                print('Write charactereistic');
+                showDialog(
+                  context: context,
+                  builder: (context) {
+                    return AlertDialog(
+                      title: const Text('Write'),
+                      content: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          TextField(
+                            controller: txtcontroller,
+                            decoration:
+                                const InputDecoration(hintText: 'String'),
+                          ),
+                          const SizedBox(
+                            height: 10,
+                          ),
+                          MaterialButton(
+                            onPressed: () {
+                              try {
+                                final characteristic = QualifiedCharacteristic(
+                                    serviceId: serviceUuid1,
+                                    characteristicId: writableUuid,
+                                    // Uuid.parse('beb5483e-36e1-4688-b7f5-ea07361b26a8'),
+                                    deviceId: "94:B9:7E:FB:03:6E");
+                                List<int> val = [
+                                  74,
+                                  121,
+                                  111,
+                                  100,
+                                  101,
+                                  115,
+                                  104,
+                                  32,
+                                  115,
+                                  104,
+                                  97,
+                                  107,
+                                  121,
+                                  97
+                                ];
+                                final res = flutterReactiveBle
+                                    .writeCharacteristicWithResponse(
+                                        characteristic,
+                                        value: txtcontroller.text.codeUnits);
+                                print(String.fromCharCodes(val));
+                              } on Exception catch (e) {
+                                // TODO
+                                log(e.toString());
+                              }
+                            },
+                            child: const Text('Send'),
+                          )
+                        ],
+                      ),
+                    );
+                  },
+                );
+              },
+              tooltip: 'Write characteristic',
+              child: const Icon(Icons.data_exploration_outlined),
+            ),
+            const SizedBox(
+              width: 10,
+            ),
+
+            ////////////////Subscribe
+            FloatingActionButton(
+              onPressed: () async {
+                log('SUBSCRIBE');
+                final characteristic = QualifiedCharacteristic(
+                    serviceId: serviceUuid1,
+                    characteristicId: characteristicUuid1,
+                    // writableUuid,
+                    deviceId: "94:B9:7E:FB:03:6E");
+                flutterReactiveBle
+                    .subscribeToCharacteristic(characteristic)
+                    .listen((data) {
+                  // code to handle incoming data
+                  log(String.fromCharCodes(data));
+                  // logsList.clear();
+
+                  setState(() {
+                    logsList.add(data[0].toString());
+                  });
+                  // flutterReactiveBle.writeCharacteristicWithResponse(
+                  //     characteristic,
+                  //     value: [1, 0]);
+                }, onError: (dynamic error) {
+                  // code to handle errors
                 });
-                // flutterReactiveBle.writeCharacteristicWithResponse(
-                //     characteristic,
-                //     value: [1, 0]);
-              }, onError: (dynamic error) {
-                // code to handle errors
-              });
-            },
-            child: const Icon(Icons.ac_unit),
-          )
-        ],
+              },
+              child: const Icon(Icons.ac_unit),
+            ),
+            const SizedBox(
+              width: 10,
+            ),
+
+            ////////////////Subscribe
+            FloatingActionButton(
+              onPressed: () async {
+                var status = await Permission.bluetooth.request();
+                print(status);
+              },
+              child: const Icon(Icons.accessible_forward_outlined),
+            )
+          ],
+        ),
       ),
     );
+  }
+
+  late BleStatus blestatus;
+
+  bleStatusCheck() {
+    flutterReactiveBle.statusStream.listen((status) {
+      //code for handling status update
+      setState(() {
+        blestatus = status;
+        if (blestatus != BleStatus.ready) {
+          showDialog(
+            context: context,
+            builder: (context) => AlertDialog(
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [Text('Please Turn on bluetooth')],
+              ),
+            ),
+          );
+        }
+      });
+    });
   }
 }
